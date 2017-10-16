@@ -19,6 +19,12 @@ if args.output_file:
 else:
     outputFile = f"../output-files/{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')}-fcs-files-index.tsv"
 
+print('Searching for .fcs files...', flush=True)
+
+text_file = open(outputFile, "w")
+text_file.write("\t".join([ 'fileName', 'metadataName', 'metadataValue' ]) + "\n")
+text_file.close()
+
 # Function for extracting metadata
 def extractMetadata():
     while True:
@@ -26,11 +32,35 @@ def extractMetadata():
             path = filePathQueue.get()
             if path is None:
                 break
-            meta = fcsparser.parse(path, meta_data_only=True)
-            metadataQueue.put(meta)
+            try:
+                meta = fcsparser.parse(path, meta_data_only=True)
+                metadataQueue.put({
+                    "fileName": path,
+                    "metaData": meta
+                })
+                print('Extracting metadata from ' + path, flush=True)
+            except fcsparser.api.ParserFeatureNotImplementedError:
+                print('The metadata in ' + path + ' seems to be broken, skipping...\n', flush=True)
+            except ValueError:
+                print('The metadata in ' + path + ' seems to be broken, skipping...\n', flush=True)
             filePathQueue.task_done()
         except queue.Empty:
-            print("Queue was empty")
+            print("Queue was empty", flush=True)
+
+# Function for extracting metadata
+def writeMetaDataToFile():
+    while True:
+        try:
+            meta = metadataQueue.get()
+            if meta is None:
+                break
+            for key in meta['metaData'].keys():
+                if key is not '__header__':
+                    text_file = open(outputFile, "a")
+                    text_file.write("\t".join([ meta['fileName'], key, str(meta['metaData'][key]) ]))
+                    text_file.close()
+        except queue.Empty:
+            print("Queue was empty", flush=True)
 
 # Set up queue for extracting file metadata
 filePathQueue = queue.Queue(maxsize=0)
@@ -44,61 +74,22 @@ for i in range(num_threads):
     worker.start()
     threads.append(worker)
 
-rows = 0
+for i in range(num_threads):
+    worker = Thread(target=writeMetaDataToFile)
+    worker.start()
+    threads.append(worker)
 
 for filename in glob.iglob(args.directory + '/**/*.fcs', recursive=True):
     filePathQueue.put(filename)
-    rows = rows + 1
 
 filePathQueue.join()
+metadataQueue.join()
 
 # stop workers
 for i in range(num_threads):
     filePathQueue.put(None)
+    metadataQueue.put(None)
 for t in threads:
     t.join()
 
-def drain(q):
-  while True:
-    try:
-      yield q.get_nowait()
-    except queue.Empty:  # on python 2 use Queue.Empty
-      break
-
-# Construct the output object
-metaDataRows = []
-metaDataToOutput = {}
-for meta in drain(metadataQueue):
-    metaDataRows.append(meta)
-
-for meta in metaDataRows:
-    for key in meta.keys():
-        if key is not '__header__':
-            metaDataToOutput.setdefault(key, [])
-
-for key in metaDataToOutput.keys():
-    for meta in metaDataRows:
-        if key in meta:
-            metaDataToOutput[key].append(meta[key])
-        else:
-            metaDataToOutput[key].append('')
-
-print(metaDataToOutput)
-
-text_file = open(outputFile, "w")
-
-# Loop through and print the data to a csv
-outputArray = ["\t".join(metaDataToOutput.keys())]
-row = 0
-while row < rows:
-    rowObject = []
-    for key in metaDataToOutput.keys():
-        # print(len(metaDataToOutput[key]))
-        rowObject.append(str(metaDataToOutput[key][row]))
-    outputArray.append("\t".join(rowObject))
-    row = row + 1    
-
-text_file.write("\n".join(outputArray))
-text_file.close()
-
-print(f'Successfully wrote output file {outputFile}')
+print(f'Successfully wrote output file {outputFile}', flush=True)
