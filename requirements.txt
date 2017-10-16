@@ -1,0 +1,7 @@
+fcsparser==0.1.4
+numpy==1.13.3
+pandas==0.20.3
+pyodbc==4.0.17
+python-dateutil==2.6.1
+pytz==2017.2
+six==1.11.0
