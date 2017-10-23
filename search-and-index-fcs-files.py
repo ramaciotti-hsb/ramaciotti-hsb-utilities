@@ -28,12 +28,22 @@ print('Searching for .fcs files...', flush=True)
 
 fileAttributes = ['BEGINANALYSIS','ENDANALYSIS','BEGINSTEXT','ENDSTEXT','BEGINDATA','ENDDATA','FIL','SYS','TOT','PAR','MODE','BYTEORD','DATATYPE','NEXTDATA','CREATOR','TUBE NAME','SRC','EXPERIMENT NAME','GUID','DATE','BTIM','ETIM','CYT','FIL','SYS','TOT','PAR','MODE','BYTEORD','DATATYPE','NEXTDATA','CREATOR','TUBE NAME','SRC','EXPERIMENT NAME','GUID','DATE','BTIM','ETIM','CYT','APPLY COMPENSATION','THRESHOLD','CST SETUP STATUS','CST BEADS LOT ID','CYTOMETER CONFIG NAME','CYTOMETER CONFIG CREATE DATE','CST SETUP DATE','CST BASELINE DATE']
 
+# Set up queue for extracting file metadata
+filePathQueue = queue.Queue(maxsize=0)
+num_threads = 4
+threads = []
+# Set up queue for writing to csv file
+metadataQueue = queue.Queue(maxsize=0)
+
 # Function for extracting metadata
 def extractMetadata():
     while True:
         try:
             path = filePathQueue.get()
+            print(path)
             if path is None:
+                print('Done extracting, breaking', flush=True)
+                metadataQueue.put(None)
                 break
             try:
                 meta = fcsparser.parse(path, meta_data_only=True)
@@ -46,6 +56,8 @@ def extractMetadata():
                 print('The metadata in ' + path + ' seems to be broken, skipping...\n', flush=True)
             except ValueError:
                 print('The metadata in ' + path + ' seems to be broken, skipping...\n', flush=True)
+            except Exception:
+                print('The metadata in ' + path + ' seems to be broken, skipping...\n', flush=True)
             filePathQueue.task_done()
         except queue.Empty:
             print("Queue was empty", flush=True)
@@ -53,13 +65,9 @@ def extractMetadata():
 def searchDirectories():
     for filename in glob.iglob(args.directory + '/**/*.fcs', recursive=True):
         filePathQueue.put(filename)
-
-# Set up queue for extracting file metadata
-filePathQueue = queue.Queue(maxsize=0)
-num_threads = 4
-threads = []
-# Set up queue for writing to csv file
-metadataQueue = queue.Queue(maxsize=0)
+    print('Done globbing, breaking', flush=True)
+    for i in range(num_threads):
+        filePathQueue.put(None)
 
 for i in range(num_threads):
     worker = Thread(target=extractMetadata)
@@ -83,6 +91,7 @@ while True:
         meta = metadataQueue.get_nowait()
         if meta is None:
             break
+        print('Inserting Metadata')
         cursor = connection.cursor()
         fileRowData = {}
         metaRowData = []
@@ -164,17 +173,15 @@ while True:
     except queue.Empty:
         time.sleep(1)
 
+print('joining queues', flush=True)
 
 filePathQueue.join()
 metadataQueue.join()
 
-print('Stopping workers')
+print('Stopping workers', flush=True)
 
 
 # stop workers
-for i in range(num_threads):
-    filePathQueue.put(None)
-    metadataQueue.put(None)
 for t in threads:
     t.join()
 
