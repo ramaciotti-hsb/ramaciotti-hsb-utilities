@@ -42,7 +42,6 @@ def extractMetadata():
             path = filePathQueue.get()
             print(path)
             if path is None:
-                print('Done extracting, breaking', flush=True)
                 metadataQueue.put(None)
                 break
             try:
@@ -65,7 +64,6 @@ def extractMetadata():
 def searchDirectories():
     for filename in glob.iglob(args.directory + '/**/*.fcs', recursive=True):
         filePathQueue.put(filename)
-    print('Done globbing, breaking', flush=True)
     for i in range(num_threads):
         filePathQueue.put(None)
 
